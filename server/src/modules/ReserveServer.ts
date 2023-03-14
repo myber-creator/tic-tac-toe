@@ -7,17 +7,20 @@ import { RoomDto } from "../dto/Room.dto.js";
 
 export class ReserveServer {
   private socket: Socket;
+  private connectedPorts: number[];
 
   constructor(public config: Config, rooms: Room[]) {
+    console.log("Резервный сервер запущен.");
+
     this.socket = io(
       `http://localhost:${this.config.ports[this.config.currentPrimaryIndex]}`
     );
+    this.socket.emit("serverConnect", this.config.port);
 
-    this.socket.emit("serverConnect");
-
+    this.connectedPorts = [];
     this.initEvents(rooms);
 
-    console.log("init reserve");
+    console.log("Установлено соедение с основным сервером.");
   }
 
   private initEvents(rooms: Room[]) {
@@ -34,9 +37,27 @@ export class ReserveServer {
       // console.log(rooms);
     });
 
+    this.socket.on("getPort", port => {
+      this.connectedPorts.push(port);
+      console.log(this.connectedPorts);
+    });
+
+    this.socket.on("removePort", port => {
+      this.connectedPorts = this.connectedPorts.filter(p => p !== port);
+    });
+
     this.socket.on("disconnect", reason => {
       if (reason === "transport close") {
         this.config.currentPrimaryIndex++;
+
+        const port = this.config.ports[this.config.currentPrimaryIndex];
+        if (
+          !port ||
+          (!this.connectedPorts.find(p => p === port) &&
+            port !== this.config.port)
+        ) {
+          this.config.currentPrimaryIndex = 0;
+        }
 
         if (this.config.httpServer)
           this.config.server = faultTolerance(this.config, rooms);

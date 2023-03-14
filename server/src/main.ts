@@ -27,7 +27,7 @@ const bootstrap = () => {
 
       if (config.port) {
         httpServer.close();
-        return bootstrap();
+        bootstrap();
       }
     }
   });

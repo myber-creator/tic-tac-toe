@@ -9,8 +9,8 @@ import { portsCors } from "../data/Ports.js";
 const URLS = useUrls(portsCors);
 
 export class PrimaryServer {
-  private servers: string[] = [];
   private socketServer: Server;
+  private connectedPorts: Map<string, number>;
 
   constructor(httpServer: HttpServer, rooms: Room[]) {
     this.socketServer = new Server(httpServer, {
@@ -20,18 +20,26 @@ export class PrimaryServer {
       },
     });
 
+    this.connectedPorts = new Map<string, number>();
+    console.log("Основной сервер запущен.");
     this.initEvents(rooms);
-
-    console.log("init primary");
   }
 
   private initEvents(rooms: Room[]) {
     this.socketServer.on("connection", socket => {
-      socket.on("serverConnect", () => {
-        this.servers.push(socket.id);
-        console.log(this.servers);
+      socket.on("serverConnect", port => {
+        console.log("Установлено соединение с резервным сервером.");
+        this.connectedPorts.set(socket.id, port);
 
         this.socketServer.to(socket.id).emit("rooms", rooms);
+
+        for (const [id, p] of this.connectedPorts) {
+          for (const port_ of this.connectedPorts.values()) {
+            if (port_ !== p) {
+              this.socketServer.to(id).emit("getPort", port_);
+            }
+          }
+        }
       });
 
       socket.on("reconnectClient", (roomName: string) => {
@@ -47,8 +55,16 @@ export class PrimaryServer {
 
       socket.on("disconnect", reason => {
         if (reason === "transport close") {
-          if (this.servers.includes(socket.id)) {
-            return (this.servers = this.servers.filter(s => s !== socket.id));
+          if (this.connectedPorts.has(socket.id)) {
+            const port = this.connectedPorts.get(socket.id);
+
+            for (let [server] of this.connectedPorts) {
+              if (server !== socket.id) {
+                this.socketServer.to(server).emit("removePort", port);
+              }
+            }
+
+            return this.connectedPorts.delete(socket.id);
           }
 
           const room = rooms.find(r => r.users.includes(socket.id));
@@ -173,7 +189,7 @@ export class PrimaryServer {
   }
 
   private sendStateToReserves(rooms: Room[]) {
-    for (let server of this.servers) {
+    for (let [server] of this.connectedPorts) {
       this.socketServer.to(server).emit("rooms", rooms);
     }
   }
