@@ -5,6 +5,7 @@ import { Room } from "./Room.js";
 import { NotFoundException } from "../types/Error.js";
 import { useUrls } from "../helpers/useUrls.js";
 import { portsCors } from "../data/Ports.js";
+import { MoveDto } from "../dto/Move.dto.js";
 
 const URLS = useUrls(portsCors);
 
@@ -22,6 +23,7 @@ export class PrimaryServer {
 
     this.connectedPorts = new Map<string, number>();
     console.log("Основной сервер запущен.");
+
     this.initEvents(rooms);
   }
 
@@ -127,7 +129,7 @@ export class PrimaryServer {
         this.socketServer.to(room.name).emit("leaveGame", socket.id);
       });
 
-      socket.on("makeMove", ({ coords, symbol }) => {
+      socket.on("makeMove", (dto: MoveDto) => {
         const room = rooms.find(r => r.users.includes(socket.id));
 
         if (!room) {
@@ -135,13 +137,13 @@ export class PrimaryServer {
           return;
         }
 
-        const winner = room.setSymbolToBoard(coords, symbol);
+        const winner = room.setSymbolToBoard(dto.coords, dto.symbol);
 
         this.sendStateToReserves(rooms);
 
         this.socketServer.to(room.name).emit("setSymbol", {
-          coords,
-          symbol,
+          coords: dto.coords,
+          symbol: dto.symbol,
           currentPlayer: room.currentPlayer,
         });
 

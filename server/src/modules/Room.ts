@@ -63,6 +63,8 @@ export class Room {
   }
 
   public setSymbolToBoard(coords: number[], symbol: string) {
+    if (this._board[coords[0]][coords[1]] !== "") return;
+
     this._board[coords[0]][coords[1]] = symbol;
 
     const index = (this._currentIndex + 1) % this.players.length;
