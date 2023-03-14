@@ -33,13 +33,10 @@ export class ReserveServer {
           return room;
         }),
       ];
-
-      // console.log(rooms);
     });
 
     this.socket.on("getPort", port => {
       this.connectedPorts.push(port);
-      console.log(this.connectedPorts);
     });
 
     this.socket.on("removePort", port => {
