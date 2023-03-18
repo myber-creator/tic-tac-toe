@@ -22,8 +22,8 @@ export class PrimaryServer {
     });
 
     this.connectedPorts = new Map<string, number>();
-    console.log("Основной сервер запущен.");
 
+    console.log("Основной сервер запущен.");
     this.initEvents(rooms);
   }
 
@@ -42,6 +42,7 @@ export class PrimaryServer {
             }
           }
         }
+        console.log(this.connectedPorts.values());
       });
 
       socket.on("reconnectClient", (roomName: string) => {
