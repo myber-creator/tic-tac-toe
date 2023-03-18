@@ -74,11 +74,9 @@ export class PrimaryServer {
 					const room = rooms.find(r => r.users.includes(socket.id));
 
 					if (room) {
-						const index = room.users.findIndex(u => u === socket.id);
-
-						room.users.splice(index, 1);
-						socket.leave(room.name);
 						this.socketServer.to(room.name).emit("leaveGame", socket.id);
+
+						rooms = this.clearRoom(rooms, room);
 					}
 				}
 			});
@@ -89,6 +87,7 @@ export class PrimaryServer {
 				if (!room) {
 					room = new Room(v4(), []);
 					rooms.push(room);
+					console.log(room, rooms);
 				}
 				socket.join(room.name);
 				socket.emit("join-room", room.name);
@@ -123,12 +122,9 @@ export class PrimaryServer {
 					return;
 				}
 
-				room.users = room.users.filter(u => u !== socket.id);
-				socket.leave(room.name);
-
-				this.sendStateToReserves(rooms);
-
 				this.socketServer.to(room.name).emit("leaveGame", socket.id);
+
+				rooms = this.clearRoom(rooms, room);
 			});
 
 			socket.on("makeMove", (dto: MoveDto) => {
@@ -152,10 +148,7 @@ export class PrimaryServer {
 				if (winner) {
 					this.socketServer.to(room.name).emit("winner", winner);
 
-					rooms = rooms.filter(r => r.name !== room.name);
-					this.socketServer.in(room.name).socketsLeave(room.name);
-
-					this.sendStateToReserves(rooms);
+					rooms = this.clearRoom(rooms, room);
 				}
 			});
 		});
@@ -196,5 +189,14 @@ export class PrimaryServer {
 		for (let [server] of this.connectedPorts) {
 			this.socketServer.to(server).emit("rooms", rooms);
 		}
+	}
+
+	private clearRoom(rooms: Room[], room: Room) {
+		rooms = rooms.filter(r => r.name !== room.name);
+		this.socketServer.in(room.name).socketsLeave(room.name);
+
+		this.sendStateToReserves(rooms);
+
+		return rooms;
 	}
 }
