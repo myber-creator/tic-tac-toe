@@ -10,189 +10,191 @@ import { MoveDto } from "../dto/Move.dto.js";
 const URLS = useUrls(portsCors);
 
 export class PrimaryServer {
-  private socketServer: Server;
-  private connectedPorts: Map<string, number>;
+	private socketServer: Server;
+	private connectedPorts: Map<string, number>;
 
-  constructor(httpServer: HttpServer, rooms: Room[]) {
-    this.socketServer = new Server(httpServer, {
-      cors: {
-        origin: URLS,
-        methods: "*",
-      },
-    });
+	constructor(httpServer: HttpServer, rooms: Room[]) {
+		this.socketServer = new Server(httpServer, {
+			cors: {
+				origin: URLS,
+				methods: "*",
+			},
+		});
 
-    this.connectedPorts = new Map<string, number>();
-    console.log("Основной сервер запущен.");
+		this.connectedPorts = new Map<string, number>();
+		console.log("Основной сервер запущен.");
 
-    this.initEvents(rooms);
-  }
+		this.initEvents(rooms);
 
-  private initEvents(rooms: Room[]) {
-    this.socketServer.on("connection", socket => {
-      socket.on("serverConnect", port => {
-        console.log("Установлено соединение с резервным сервером.");
-        this.connectedPorts.set(socket.id, port);
+		console.log(rooms);
+	}
 
-        this.socketServer.to(socket.id).emit("rooms", rooms);
+	private initEvents(rooms: Room[]) {
+		this.socketServer.on("connection", socket => {
+			socket.on("serverConnect", port => {
+				console.log("Установлено соединение с резервным сервером.");
+				this.connectedPorts.set(socket.id, port);
 
-        for (const [id, p] of this.connectedPorts) {
-          for (const port_ of this.connectedPorts.values()) {
-            if (port_ !== p) {
-              this.socketServer.to(id).emit("getPort", port_);
-            }
-          }
-        }
-      });
+				this.socketServer.to(socket.id).emit("rooms", rooms);
 
-      socket.on("reconnectClient", (roomName: string) => {
-        const room = rooms.find(r => r.name === roomName);
+				for (const [id, p] of this.connectedPorts) {
+					for (const port_ of this.connectedPorts.values()) {
+						if (port_ !== p) {
+							this.socketServer.to(id).emit("getPort", port_);
+						}
+					}
+				}
+			});
 
-        if (room) {
-          room.users.push(socket.id);
-          socket.join(roomName);
-        }
+			socket.on("reconnectClient", (roomName: string) => {
+				const room = rooms.find(r => r.name === roomName);
 
-        this.socketServer.to(socket.id).emit("reconnect");
-      });
+				if (room) {
+					room.users.push(socket.id);
+					socket.join(roomName);
+				}
 
-      socket.on("disconnect", reason => {
-        if (reason === "transport close") {
-          if (this.connectedPorts.has(socket.id)) {
-            const port = this.connectedPorts.get(socket.id);
+				this.socketServer.to(socket.id).emit("reconnect");
+			});
 
-            for (let [server] of this.connectedPorts) {
-              if (server !== socket.id) {
-                this.socketServer.to(server).emit("removePort", port);
-              }
-            }
+			socket.on("disconnect", reason => {
+				if (reason === "transport close") {
+					if (this.connectedPorts.has(socket.id)) {
+						const port = this.connectedPorts.get(socket.id);
 
-            return this.connectedPorts.delete(socket.id);
-          }
+						for (let [server] of this.connectedPorts) {
+							if (server !== socket.id) {
+								this.socketServer.to(server).emit("removePort", port);
+							}
+						}
 
-          const room = rooms.find(r => r.users.includes(socket.id));
+						return this.connectedPorts.delete(socket.id);
+					}
 
-          if (room) {
-            const index = room.users.findIndex(u => u === socket.id);
+					const room = rooms.find(r => r.users.includes(socket.id));
 
-            room.users.splice(index, 1);
-            socket.leave(room.name);
-            this.socketServer.to(room.name).emit("leaveGame", socket.id);
-          }
-        }
-      });
+					if (room) {
+						const index = room.users.findIndex(u => u === socket.id);
 
-      socket.on("startFind", () => {
-        let room = rooms.find(r => r.users.length === 1);
+						room.users.splice(index, 1);
+						socket.leave(room.name);
+						this.socketServer.to(room.name).emit("leaveGame", socket.id);
+					}
+				}
+			});
 
-        if (!room) {
-          room = new Room(v4(), []);
-          rooms.push(room);
-        }
-        socket.join(room.name);
-        socket.emit("join-room", room.name);
+			socket.on("startFind", () => {
+				let room = rooms.find(r => r.users.length === 1);
 
-        room.users.push(socket.id);
+				if (!room) {
+					room = new Room(v4(), []);
+					rooms.push(room);
+				}
+				socket.join(room.name);
+				socket.emit("join-room", room.name);
 
-        this.sendStateToReserves(rooms);
+				room.users.push(socket.id);
 
-        if (room.users.length > 1) {
-          this.startGame(room);
-        }
-      });
+				this.sendStateToReserves(rooms);
 
-      socket.on("startGame", (nameRoom: string) => {
-        const room = rooms.find(r => r.name === nameRoom);
+				if (room.users.length > 1) {
+					this.startGame(room);
+				}
+			});
 
-        if (!room) {
-          this.emitErrors("Room is not founded!", socket.id);
-          return;
-        }
+			socket.on("startGame", (nameRoom: string) => {
+				const room = rooms.find(r => r.name === nameRoom);
 
-        this.sendStateToReserves(rooms);
+				if (!room) {
+					this.emitErrors("Room is not founded!", socket.id);
+					return;
+				}
 
-        this.startGame(room);
-      });
+				this.sendStateToReserves(rooms);
 
-      socket.on("leaveGame", (nameRoom: string) => {
-        const room = rooms.find(r => r.name === nameRoom);
+				this.startGame(room);
+			});
 
-        if (!room) {
-          this.emitErrors("Room is not founded!", socket.id);
-          return;
-        }
+			socket.on("leaveGame", (nameRoom: string) => {
+				const room = rooms.find(r => r.name === nameRoom);
 
-        room.users = room.users.filter(u => u !== socket.id);
-        socket.leave(room.name);
+				if (!room) {
+					this.emitErrors("Room is not founded!", socket.id);
+					return;
+				}
 
-        this.sendStateToReserves(rooms);
+				room.users = room.users.filter(u => u !== socket.id);
+				socket.leave(room.name);
 
-        this.socketServer.to(room.name).emit("leaveGame", socket.id);
-      });
+				this.sendStateToReserves(rooms);
 
-      socket.on("makeMove", (dto: MoveDto) => {
-        const room = rooms.find(r => r.users.includes(socket.id));
+				this.socketServer.to(room.name).emit("leaveGame", socket.id);
+			});
 
-        if (!room) {
-          this.emitErrors("Room is not founded!", socket.id);
-          return;
-        }
+			socket.on("makeMove", (dto: MoveDto) => {
+				const room = rooms.find(r => r.users.includes(socket.id));
 
-        const winner = room.setSymbolToBoard(dto.coords, dto.symbol);
+				if (!room) {
+					this.emitErrors("Room is not founded!", socket.id);
+					return;
+				}
 
-        this.sendStateToReserves(rooms);
+				const winner = room.setSymbolToBoard(dto.coords, dto.symbol);
 
-        this.socketServer.to(room.name).emit("setSymbol", {
-          coords: dto.coords,
-          symbol: dto.symbol,
-          currentPlayer: room.currentPlayer,
-        });
+				this.sendStateToReserves(rooms);
 
-        if (winner) {
-          this.socketServer.to(room.name).emit("winner", winner);
+				this.socketServer.to(room.name).emit("setSymbol", {
+					coords: dto.coords,
+					symbol: dto.symbol,
+					currentPlayer: room.currentPlayer,
+				});
 
-          rooms = rooms.filter(r => r.name !== room.name);
-          this.socketServer.in(room.name).socketsLeave(room.name);
+				if (winner) {
+					this.socketServer.to(room.name).emit("winner", winner);
 
-          this.sendStateToReserves(rooms);
-        }
-      });
-    });
-  }
+					rooms = rooms.filter(r => r.name !== room.name);
+					this.socketServer.in(room.name).socketsLeave(room.name);
 
-  private emitErrors(body: string, id: string) {
-    this.socketServer.to(id).emit("Error", new NotFoundException(body));
-  }
+					this.sendStateToReserves(rooms);
+				}
+			});
+		});
+	}
 
-  private startGame(room: Room) {
-    const symbols = this.shuffle(["X", "O"]);
+	private emitErrors(body: string, id: string) {
+		this.socketServer.to(id).emit("Error", new NotFoundException(body));
+	}
 
-    for (let user of room.users) {
-      this.socketServer.to(user).emit("start", symbols[0]);
+	private startGame(room: Room) {
+		const symbols = this.shuffle(["X", "O"]);
 
-      symbols.splice(0, 1);
-    }
-  }
+		for (let user of room.users) {
+			this.socketServer.to(user).emit("start", symbols[0]);
 
-  private shuffle(array: string[]) {
-    let currentIndex = array.length,
-      randomIndex;
+			symbols.splice(0, 1);
+		}
+	}
 
-    while (currentIndex != 0) {
-      randomIndex = Math.floor(Math.random() * currentIndex);
-      currentIndex--;
+	private shuffle(array: string[]) {
+		let currentIndex = array.length,
+			randomIndex;
 
-      [array[currentIndex], array[randomIndex]] = [
-        array[randomIndex],
-        array[currentIndex],
-      ];
-    }
+		while (currentIndex != 0) {
+			randomIndex = Math.floor(Math.random() * currentIndex);
+			currentIndex--;
 
-    return array;
-  }
+			[array[currentIndex], array[randomIndex]] = [
+				array[randomIndex],
+				array[currentIndex],
+			];
+		}
 
-  private sendStateToReserves(rooms: Room[]) {
-    for (let [server] of this.connectedPorts) {
-      this.socketServer.to(server).emit("rooms", rooms);
-    }
-  }
+		return array;
+	}
+
+	private sendStateToReserves(rooms: Room[]) {
+		for (let [server] of this.connectedPorts) {
+			this.socketServer.to(server).emit("rooms", rooms);
+		}
+	}
 }
