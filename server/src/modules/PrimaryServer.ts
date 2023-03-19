@@ -25,8 +25,6 @@ export class PrimaryServer {
 
     console.log("Основной сервер запущен.");
     this.initEvents(rooms);
-
-    console.log(rooms);
   }
 
   private initEvents(rooms: Room[]) {
@@ -52,6 +50,10 @@ export class PrimaryServer {
         if (room) {
           room.users.push(socket.id);
           socket.join(roomName);
+
+          if (room.users.length === 2) {
+            this.socketServer.to(room.users[0]).emit("reconnectEnemy");
+          }
         }
 
         this.socketServer.to(socket.id).emit("reconnect");
@@ -62,6 +64,7 @@ export class PrimaryServer {
           if (this.connectedPorts.has(socket.id)) {
             const port = this.connectedPorts.get(socket.id);
 
+            console.log(`Соединение с резевным серверов ${port} разорвано.`);
             for (let [server] of this.connectedPorts) {
               if (server !== socket.id) {
                 this.socketServer.to(server).emit("removePort", port);
@@ -87,7 +90,6 @@ export class PrimaryServer {
         if (!room) {
           room = new Room(v4(), []);
           rooms.push(room);
-          console.log(room, rooms);
         }
         socket.join(room.name);
         socket.emit("join-room", room.name);

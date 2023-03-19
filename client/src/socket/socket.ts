@@ -4,149 +4,167 @@ import { Room } from "../types/Room";
 import { Game } from "../game/game";
 
 export class SocketClient {
-	private socket: Socket | null = null;
-	private room: Room;
+  private socket: Socket | null = null;
+  private room: Room;
 
-	private readonly ports: number[] = [3001, 3002, 3003, 3004];
-	private currentPort: number = 0;
-	private lastEmit: LastEmit;
-	private isReconnecting: boolean = false;
+  private lastEmit: LastEmit = { name: "" };
 
-	constructor(private game: Game) {
-		this.room = {
-			id: "",
-			users: [],
-		};
-		this.lastEmit = { name: "" };
+  private readonly ports: number[] = [3001, 3002, 3003, 3004];
+  private currentPort: number = 0;
+  private isReconnecting: boolean = false;
 
-		this.connectToServer();
-	}
+  private countConnecting: number = 0;
 
-	private createEmits() {
-		if (!this.socket) return;
+  constructor(private game: Game) {
+    this.room = {
+      id: "",
+    };
 
-		this.socket.on("reconnect", () => {
-			this.isReconnecting = false;
-		});
+    this.connectToServer();
+  }
 
-		this.socket.on("connect", () => {});
+  private createEmits() {
+    if (!this.socket) return;
 
-		this.socket.on("join-room", (roomName: string) => {
-			if (!this.room.id) this.room.id = roomName;
-		});
+    this.socket.on("reconnectEnemy", () => {
+      if (this.lastEmit.name) {
+        this.socket?.emit(this.lastEmit.name, this.lastEmit.data);
+        this.setLastEmit("");
+      }
+    });
 
-		this.socket.on("start", (symbol: string) => {
-			this.game.startGame(symbol);
-		});
+    this.socket.on("reconnect", () => {
+      this.isReconnecting = false;
+      this.setLastEmit("");
+    });
 
-		this.socket.on("leaveGame", () => {
-			this.game.enemyLeave();
-			this.lastEmit = { name: "" };
-			this.room.id = "";
-		});
+    this.socket.on("connect", () => {
+      this.countConnecting = 0;
 
-		this.socket.on("setSymbol", ({ coords, symbol, currentPlayer }) => {
-			this.game.setCellSymbol(coords, symbol);
-			this.game.setCurrentPlayer(currentPlayer);
-		});
+      if (this.isReconnecting) {
+        this.socket?.emit("reconnectClient", this.room.id);
 
-		this.socket.on("winner", winner => {
-			this.game.setWinner(winner);
-			this.lastEmit = { name: "" };
-		});
+        if (this.lastEmit.name) {
+          this.socket?.emit(this.lastEmit.name, this.lastEmit.data);
+          this.setLastEmit("");
+        }
+      }
+    });
 
-		this.socket.on("Error", error => {
-			throw new Error(error.body);
-		});
+    this.socket.on("join-room", (roomName: string) => {
+      if (!this.room.id) this.room.id = roomName;
+      this.setLastEmit("");
+    });
 
-		this.socket.on("connect_error", () => {
-			this.isReconnecting = true;
-			this.socket?.close();
-			this.currentPort++;
-			this.connectToServer();
-		});
+    this.socket.on("start", (symbol: string) => {
+      this.game.startGame(symbol);
+      this.setLastEmit("");
+    });
 
-		this.socket.on("disconnect", reason => {
-			if (!this.socket) return;
+    this.socket.on("leaveGame", () => {
+      this.room.id = "";
+      this.game.enemyLeave();
 
-			if (reason === "transport close") {
-				this.isReconnecting = true;
-				this.currentPort++;
-				this.socket.close();
+      this.setLastEmit("");
+    });
 
-				const port = this.connectToServer();
+    this.socket.on("setSymbol", ({ coords, symbol, currentPlayer }) => {
+      this.game.setCellSymbol(coords, symbol);
+      this.game.setCurrentPlayer(currentPlayer);
 
-				if (port) {
-					this.socket.emit("reconnectClient", this.room.id);
-					console.log(this.room.id);
+      this.setLastEmit("");
+    });
 
-					if (this.lastEmit.name && this.isReconnecting) {
-						this.socket.emit(this.lastEmit.name, this.lastEmit.data);
-					}
-				}
-			}
-		});
-	}
+    this.socket.on("winner", winner => {
+      this.game.setWinner(winner);
 
-	private connectToServer() {
-		let port = this.ports[this.currentPort];
+      this.setLastEmit("");
+    });
 
-		if (!port) {
-			this.currentPort = 0;
-			port = this.ports[this.currentPort];
-		}
+    this.socket.on("Error", error => {
+      throw new Error(error.message);
+    });
 
-		this.socket = io(`localhost:${port}`, {
-			autoConnect: this.isReconnecting,
-		});
+    this.socket.on("connect_error", () => {
+      if (this.countConnecting === 5) {
+        this.socket?.close();
 
-		this.createEmits();
+        this.game.setButton();
+        this.game.setInfo("Ошибка подключения.");
 
-		return port;
-	}
+        this.room.id = "";
+        this.countConnecting = 0;
+        this.isReconnecting = false;
+        this.lastEmit = { name: "" };
 
-	public findGame() {
-		if (!this.socket) return;
+        return;
+      }
 
-		this.socket.connect();
-		this.socket.emit("startFind");
+      this.isReconnecting = true;
+      this.socket?.close();
+      this.currentPort++;
+      this.connectToServer();
+    });
 
-		this.lastEmit = {
-			name: "startFind",
-		};
-	}
+    this.socket.on("disconnect", reason => {
+      if (!this.socket) return;
 
-	public startGame() {
-		if (!this.socket) return;
+      if (reason === "transport close") {
+        this.isReconnecting = true;
+        this.currentPort++;
+        this.socket.close();
 
-		this.socket.emit("startGame", this.room.id);
+        this.connectToServer();
+      }
+    });
+  }
 
-		this.lastEmit = {
-			name: "startGame",
-			data: this.room.id,
-		};
-	}
+  private connectToServer() {
+    let port = this.ports[this.currentPort];
 
-	public leaveGame() {
-		if (!this.socket) return;
+    if (!port) {
+      this.currentPort = 0;
+      port = this.ports[this.currentPort];
 
-		this.socket.emit("leaveGame", this.room.id);
-		this.room.id = "";
+      this.countConnecting++;
+    }
 
-		this.lastEmit = {
-			name: "leaveGame",
-			data: this.room.id,
-		};
-	}
+    this.socket = io(`localhost:${port}`, {
+      autoConnect: this.isReconnecting,
+    });
 
-	public makeMove(coords: number[], symbol: string) {
-		if (!this.socket) return;
+    this.createEmits();
+  }
 
-		this.socket.emit("makeMove", { coords, symbol });
+  private setLastEmit(name: string, data?: any) {
+    this.lastEmit = { name, data };
+  }
 
-		this.lastEmit = {
-			name: "makeMove",
-			data: { coords, symbol },
-		};
-	}
+  public findGame() {
+    if (!this.socket) return;
+
+    this.socket.connect();
+    this.socket.emit("startFind");
+
+    this.setLastEmit("startFind");
+  }
+
+  public leaveGame() {
+    if (!this.socket) return;
+
+    if (!this.room.id) return;
+
+    this.socket.emit("leaveGame", this.room.id);
+    this.room.id = "";
+
+    this.setLastEmit("leaveGame", this.room.id);
+  }
+
+  public makeMove(coords: number[], symbol: string) {
+    if (!this.socket) return;
+
+    this.socket.emit("makeMove", { coords, symbol });
+
+    this.lastEmit = { name: "makeMove", data: { coords, symbol } };
+  }
 }

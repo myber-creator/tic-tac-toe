@@ -70,7 +70,7 @@ export class Game {
 
         this.inSearch = true;
         this.socketClient.findGame();
-        if (this.info) this.info.innerText = "Поиск противника...";
+        this.setInfo("Поиск противника...");
 
         return;
       }
@@ -83,10 +83,16 @@ export class Game {
         if (!winner) {
           this.inSearch = false;
           this.socketClient.leaveGame();
-          if (this.info) this.info.innerText = "";
+          this.setInfo("");
         }
         return;
       }
+    }
+  }
+
+  public setInfo(info: string) {
+    if (this.info) {
+      this.info.innerText = info;
     }
   }
 
@@ -100,7 +106,7 @@ export class Game {
 
     this.isStart = false;
 
-    if (this.info) this.info.innerText = "";
+    this.setInfo("");
   }
 
   public startGame(symbol: string) {
@@ -111,7 +117,7 @@ export class Game {
     const move =
       this.symbol === this.currentPlayer ? "Ваш ход." : "Ход противника.";
 
-    if (this.info) this.info.innerText = `Противник найден. ${move}`;
+    this.setInfo(`Противник найден. ${move}`);
   }
 
   public setCellSymbol(coords: number[], symbol: string) {
@@ -132,7 +138,7 @@ export class Game {
       const move =
         this.symbol === this.currentPlayer ? "Ваш ход." : "Ход противника.";
 
-      this.info.innerText = move;
+      this.setInfo(move);
     }
   }
 
@@ -142,7 +148,7 @@ export class Game {
     if (this.info) {
       const winnerText = winner === "tie" ? "Ничья" : `Победитель ${winner}`;
 
-      this.info.innerText = winnerText;
+      this.setInfo(winnerText);
     }
   }
 
@@ -152,8 +158,6 @@ export class Game {
 
     this.setButton();
 
-    if (this.info) {
-      this.info.innerText = "Противник покинул игру.";
-    }
+    this.setInfo("Противник покинул игру.");
   }
 }
